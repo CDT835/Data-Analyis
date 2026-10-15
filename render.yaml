@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: ai-report-service
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: AIAR_SHARED_SECRET
+        sync: false
+      - key: AIAR_MAX_SKEW_SECONDS
+        value: "300"
