@@ -1,11 +1,27 @@
 import json
+import threading
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
 from .config import get_settings
-from .routers import datasets, system
+from .routers import analysis, datasets, system
 
 _settings = get_settings()
+
+
+def _warm_up() -> None:
+    """Nạp trước scikit-learn ở luồng nền để lần gọi ML đầu tiên không bị chậm (gói miễn phí CPU rất yếu)."""
+    try:
+        import sklearn.cluster, sklearn.linear_model, sklearn.metrics, sklearn.preprocessing  # noqa: F401
+    except Exception:
+        pass
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    threading.Thread(target=_warm_up, daemon=True).start()
+    yield
 
 
 class BodyLimitMiddleware:
@@ -57,11 +73,14 @@ class BodyLimitMiddleware:
 
 app = FastAPI(
     title="AI Report Studio – Dịch vụ phân tích dữ liệu",
-    version="0.3.0",
+    version="0.4.0",
     docs_url="/docs" if _settings.enable_docs else None,
     redoc_url=None,
     openapi_url="/openapi.json" if _settings.enable_docs else None,
+    lifespan=lifespan,
 )
 app.add_middleware(BodyLimitMiddleware)
 app.include_router(system.router)
 app.include_router(datasets.router)
+app.include_router(analysis.router)
+
