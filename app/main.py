@@ -13,7 +13,8 @@ _settings = get_settings()
 def _warm_up() -> None:
     """Nạp trước scikit-learn ở luồng nền để lần gọi ML đầu tiên không bị chậm (gói miễn phí CPU rất yếu)."""
     try:
-        import sklearn.cluster, sklearn.linear_model, sklearn.metrics, sklearn.preprocessing  # noqa: F401
+        import sklearn.cluster, sklearn.compose, sklearn.dummy, sklearn.ensemble, sklearn.inspection  # noqa: F401
+        import sklearn.linear_model, sklearn.metrics, sklearn.model_selection, sklearn.pipeline, sklearn.preprocessing, sklearn.tree  # noqa: F401
     except Exception:
         pass
 
