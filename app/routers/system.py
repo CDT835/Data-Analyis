@@ -30,7 +30,7 @@ def health():
     return {
         "status": "ok",
         "service": "ai-report-service",
-        "version": "0.4.0",
+        "version": "0.5.0",
         "python": platform.python_version(),
         "libraries": {lib: _version(lib) for lib in _LIBS},
         "uptime_seconds": int(time.time() - _started_at),
