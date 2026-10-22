@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from .config import get_settings
-from .routers import analysis, datasets, finance_router, system
+from .routers import ai_router, analysis, datasets, finance_router, system
 
 _settings = get_settings()
 
@@ -74,7 +74,7 @@ class BodyLimitMiddleware:
 
 app = FastAPI(
     title="AI Report Studio – Dịch vụ phân tích dữ liệu",
-    version="0.5.0",
+    version="0.6.0",
     docs_url="/docs" if _settings.enable_docs else None,
     redoc_url=None,
     openapi_url="/openapi.json" if _settings.enable_docs else None,
@@ -85,4 +85,5 @@ app.include_router(system.router)
 app.include_router(datasets.router)
 app.include_router(analysis.router)
 app.include_router(finance_router.router)
+app.include_router(ai_router.router)
 
