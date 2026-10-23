@@ -8,7 +8,7 @@ from tests import mock_gemini
 from tests.test_datasets import call
 from tests.test_finance import CLEAN, FLAWED, parse
 
-KEY = "AIzaSy-test-key-should-never-leak-1234567"
+KEY = "gsk_test-key-should-never-leak-1234567"
 
 
 @pytest.fixture(scope="module")
@@ -28,13 +28,13 @@ def faithful(prompt: str, extra_text="", extra_refs=("F2",)):
 
 
 def prompt_of(body):
-    return body["contents"][0]["parts"][0]["text"]
+    return body["messages"][1]["content"]
 
 
 def run(monkeypatch, responder, clean, **extra):
     srv, url, log = mock_gemini.start(responder)
     monkeypatch.setenv("AIAR_AI_BASE_URL", url)
-    payload = {"analysis": clean["analysis"], "checks": clean["checks"], "model": "gemini-2.5-flash", "api_key": KEY, **extra}
+    payload = {"analysis": clean["analysis"], "checks": clean["checks"], "model": "openai/gpt-oss-120b", "api_key": KEY, **extra}
     try:
         r = call("/api/v1/ai/finance-commentary", payload)
     finally:
@@ -66,11 +66,11 @@ def test_commentary_success_and_request_shape(monkeypatch, clean):
     d = r.json()
     assert d["verification"]["n_numbers_unverified"] == 0 and d["verification"]["n_numbers"] > 5
     assert d["commentary"]["summary"]["refs"] and set(d["commentary"]) >= {"summary", "highlights", "trends", "risks", "recommendations", "next_analyses"}
-    assert d["usage"]["prompt_tokens"] == 900 and d["model"] == "gemini-2.5-flash"
+    assert d["usage"]["prompt_tokens"] == 900 and d["model"] == "openai/gpt-oss-120b"
     req = log[0]
     assert req["key"] == KEY and not req["query"]  # khóa nằm ở tiêu đề, không nằm trên URL
-    assert req["model"] == "gemini-2.5-flash" and req["body"]["generationConfig"]["responseMimeType"] == "application/json"
-    assert "QUY TẮC BẮT BUỘC" in req["body"]["systemInstruction"]["parts"][0]["text"]
+    assert req["model"] == "openai/gpt-oss-120b" and req["body"]["response_format"] == {"type": "json_object"}
+    assert "QUY TẮC BẮT BUỘC" in req["body"]["messages"][0]["content"]
     prompt = prompt_of(req["body"])
     assert "F1:" in prompt and "xlsx" not in prompt and "An Phát" not in prompt
     assert KEY not in r.text  # khóa không bị trả lại
@@ -103,10 +103,11 @@ def test_code_fence_and_retry_on_bad_json(monkeypatch, clean):
 
 
 @pytest.mark.parametrize("status,body,expect", [
-    (400, {"error": {"message": "API key not valid. Please pass a valid API key."}}, "Khóa API Gemini không hợp lệ"),
+    (401, {"error": {"message": "Invalid API Key", "code": "invalid_api_key"}}, "Khóa API Groq không hợp lệ"),
     (403, {"error": {"message": "denied"}}, "không có quyền"),
-    (404, {"error": {"message": "model not found"}}, "Không tìm thấy mô hình"),
-    (429, {"error": {"message": "quota"}}, "vượt hạn mức"),
+    (404, {"error": {"message": "The model `x` does not exist", "code": "model_not_found"}}, "Không tìm thấy mô hình"),
+    (400, {"error": {"message": "The model `x` has been decommissioned", "code": "model_decommissioned"}}, "Không tìm thấy mô hình"),
+    (429, {"error": {"message": "rate limit"}}, "vượt hạn mức"),
 ])
 def test_provider_errors_are_translated_without_leaking_key(monkeypatch, clean, status, body, expect):
     r, _ = run(monkeypatch, lambda m, k, b: (status, body), clean)
@@ -120,9 +121,9 @@ def test_server_error_retries_once_then_reports(monkeypatch, clean):
 
 
 def test_blocked_prompt_and_empty_response(monkeypatch, clean):
-    r, _ = run(monkeypatch, lambda m, k, b: (200, {"promptFeedback": {"blockReason": "SAFETY"}}), clean)
-    assert r.status_code == 422 and "bộ lọc an toàn" in r.json()["detail"]
-    r, _ = run(monkeypatch, lambda m, k, b: (200, {"candidates": []}), clean)
+    r, _ = run(monkeypatch, lambda m, k, b: (200, {"choices": []}), clean)
+    assert r.status_code == 422 and "không trả về nội dung" in r.json()["detail"]
+    r, _ = run(monkeypatch, lambda m, k, b: (200, {"choices": []}), clean)
     assert r.status_code == 422 and "không trả về nội dung" in r.json()["detail"]
 
 
@@ -153,10 +154,10 @@ def test_connection_test_endpoint(monkeypatch):
     srv, url, log = mock_gemini.start(lambda m, k, b: mock_gemini.ok("OK"))
     monkeypatch.setenv("AIAR_AI_BASE_URL", url)
     try:
-        d = call("/api/v1/ai/test", {"model": "gemini-2.5-flash", "api_key": KEY}).json()
+        d = call("/api/v1/ai/test", {"model": "openai/gpt-oss-120b", "api_key": KEY}).json()
     finally:
         srv.shutdown()
-    assert d["ok"] and d["model"] == "gemini-2.5-flash" and "elapsed_ms" in d and log[0]["key"] == KEY
+    assert d["ok"] and d["model"] == "openai/gpt-oss-120b" and "elapsed_ms" in d and log[0]["key"] == KEY
 
 
 def test_flawed_data_is_surfaced_in_facts():

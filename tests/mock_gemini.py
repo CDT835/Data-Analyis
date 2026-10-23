@@ -1,4 +1,4 @@
-"""Máy chủ giả lập Gemini để kiểm thử (không dùng khóa thật)."""
+"""Máy chủ giả lập Groq (API tương thích OpenAI) để kiểm thử (không dùng khóa thật)."""
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -14,8 +14,8 @@ def start(responder):
 
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
-            model = self.path.split("/models/")[-1].split(":")[0]
-            key = self.headers.get("x-goog-api-key", "")
+            model = body.get("model", "")
+            key = self.headers.get("Authorization", "").replace("Bearer ", "", 1)
             log.append({"path": self.path, "key": key, "body": body, "model": model, "query": "?" in self.path})
             status, payload = responder(model, key, body)
             data = json.dumps(payload).encode()
@@ -31,4 +31,4 @@ def start(responder):
 
 
 def ok(text, **usage):
-    return 200, {"candidates": [{"content": {"parts": [{"text": text}]}, "finishReason": "STOP"}], "usageMetadata": {"promptTokenCount": 900, "candidatesTokenCount": 400, **usage}}
+    return 200, {"choices": [{"message": {"role": "assistant", "content": text}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 900, "completion_tokens": 400, **usage}}
