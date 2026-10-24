@@ -4,7 +4,7 @@ import re
 import pytest
 
 from app.services import ai
-from tests import mock_gemini
+from tests import mock_groq
 from tests.test_datasets import call
 from tests.test_finance import CLEAN, FLAWED, parse
 
@@ -32,7 +32,7 @@ def prompt_of(body):
 
 
 def run(monkeypatch, responder, clean, **extra):
-    srv, url, log = mock_gemini.start(responder)
+    srv, url, log = mock_groq.start(responder)
     monkeypatch.setenv("AIAR_AI_BASE_URL", url)
     payload = {"analysis": clean["analysis"], "checks": clean["checks"], "model": "openai/gpt-oss-120b", "api_key": KEY, **extra}
     try:
@@ -61,7 +61,7 @@ def test_number_verification_helpers():
 
 
 def test_commentary_success_and_request_shape(monkeypatch, clean):
-    r, log = run(monkeypatch, lambda m, k, b: mock_gemini.ok(json.dumps(faithful(prompt_of(b)), ensure_ascii=False)), clean)
+    r, log = run(monkeypatch, lambda m, k, b: mock_groq.ok(json.dumps(faithful(prompt_of(b)), ensure_ascii=False)), clean)
     assert r.status_code == 200, r.text
     d = r.json()
     assert d["verification"]["n_numbers_unverified"] == 0 and d["verification"]["n_numbers"] > 5
@@ -82,7 +82,7 @@ def test_hallucinated_numbers_and_bad_refs_are_flagged(monkeypatch, clean):
         out["highlights"][0] = {"text": "Doanh thu tăng 97,3% nhờ chiến dịch quảng cáo lớn.", "refs": ["F1"]}
         out["trends"][0] = {"text": "Xu hướng ổn định.", "refs": ["F999"]}
         return out
-    r, _ = run(monkeypatch, lambda m, k, b: mock_gemini.ok(json.dumps(bad(prompt_of(b)), ensure_ascii=False)), clean)
+    r, _ = run(monkeypatch, lambda m, k, b: mock_groq.ok(json.dumps(bad(prompt_of(b)), ensure_ascii=False)), clean)
     d = r.json()
     hl = d["commentary"]["highlights"][0]
     assert hl["unverified_numbers"] == ["97,3"] and d["verification"]["n_numbers_unverified"] == 1 and d["verification"]["n_items_with_unverified"] == 1
@@ -96,8 +96,8 @@ def test_code_fence_and_retry_on_bad_json(monkeypatch, clean):
     def resp(m, k, b):
         calls["n"] += 1
         if calls["n"] == 1:
-            return mock_gemini.ok("Đây là nhận xét của tôi: không phải JSON")
-        return mock_gemini.ok("```json\n" + json.dumps(faithful(prompt_of(b)), ensure_ascii=False) + "\n```")
+            return mock_groq.ok("Đây là nhận xét của tôi: không phải JSON")
+        return mock_groq.ok("```json\n" + json.dumps(faithful(prompt_of(b)), ensure_ascii=False) + "\n```")
     r, log = run(monkeypatch, resp, clean)
     assert r.status_code == 200 and len(log) == 2 and "không phải JSON hợp lệ" in prompt_of(log[1]["body"])
 
@@ -128,7 +128,7 @@ def test_blocked_prompt_and_empty_response(monkeypatch, clean):
 
 
 def test_missing_key_uses_environment_fallback(monkeypatch, clean):
-    srv, url, log = mock_gemini.start(lambda m, k, b: mock_gemini.ok(json.dumps(faithful(prompt_of(b)), ensure_ascii=False)))
+    srv, url, log = mock_groq.start(lambda m, k, b: mock_groq.ok(json.dumps(faithful(prompt_of(b)), ensure_ascii=False)))
     monkeypatch.setenv("AIAR_AI_BASE_URL", url)
     try:
         monkeypatch.delenv("AIAR_AI_API_KEY", raising=False)
@@ -151,7 +151,7 @@ def test_validation_of_inputs(monkeypatch, clean):
 
 
 def test_connection_test_endpoint(monkeypatch):
-    srv, url, log = mock_gemini.start(lambda m, k, b: mock_gemini.ok("OK"))
+    srv, url, log = mock_groq.start(lambda m, k, b: mock_groq.ok("OK"))
     monkeypatch.setenv("AIAR_AI_BASE_URL", url)
     try:
         d = call("/api/v1/ai/test", {"model": "openai/gpt-oss-120b", "api_key": KEY}).json()
@@ -165,3 +165,8 @@ def test_flawed_data_is_surfaced_in_facts():
     facts = call("/api/v1/ai/facts", {"analysis": r["analysis"], "checks": r["checks"]}).json()["facts"]
     chk = next(f for f in facts if f["kind"] == "checks")
     assert "7 phép cộng/cân đối bị lệch" in chk["text"] and "4 lỗi gốc" in chk["text"] and "Tổng cộng tài sản kỳ 2023 lệch 500" in chk["text"]
+
+
+def test_gpt_oss_name_without_slash_gets_prefix(monkeypatch, clean):
+    r, log = run(monkeypatch, lambda m, k, b: mock_groq.ok(json.dumps(faithful(prompt_of(b)), ensure_ascii=False)), clean, model="gpt-oss-120b")
+    assert r.status_code == 200 and log[0]["model"] == "openai/gpt-oss-120b"

@@ -196,6 +196,8 @@ def call_llm(api_key: str, model: str, system: str, user: str, timeout: float = 
     """Gọi Groq qua API tương thích OpenAI (chat/completions). Trả về (văn bản, thống kê token)."""
     if not MODEL_RE.match(model or "") or ".." in model:
         raise AIError("Tên mô hình AI không hợp lệ.")
+    if model.startswith("gpt-oss"):  # plugin WordPress không cho nhập dấu "/", nên tự thêm tiền tố của Groq
+        model = "openai/" + model
     if not api_key:
         raise AIError("Chưa cấu hình khóa API cho dịch vụ AI.")
     url = f"{_base_url()}/chat/completions"

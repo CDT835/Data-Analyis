@@ -9,7 +9,7 @@ from ..auth import verify_signature
 router = APIRouter()
 _started_at = time.time()
 
-_LIBS = ["fastapi", "pandas", "numpy", "openpyxl", "scikit-learn"]
+_LIBS = ["fastapi", "pandas", "numpy", "openpyxl", "scikit-learn", "python-docx", "reportlab", "matplotlib"]
 
 
 def _version(name: str) -> str:
@@ -30,7 +30,7 @@ def health():
     return {
         "status": "ok",
         "service": "ai-report-service",
-        "version": "0.6.0",
+        "version": "0.7.0",
         "python": platform.python_version(),
         "libraries": {lib: _version(lib) for lib in _LIBS},
         "uptime_seconds": int(time.time() - _started_at),
