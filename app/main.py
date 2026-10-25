@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from .config import get_settings
-from .routers import ai_router, analysis, datasets, finance_router, system
+from .routers import ai_router, analysis, datasets, finance_router, reports, system
 
 _settings = get_settings()
 
@@ -15,6 +15,10 @@ def _warm_up() -> None:
     try:
         import sklearn.cluster, sklearn.compose, sklearn.dummy, sklearn.ensemble, sklearn.inspection  # noqa: F401
         import sklearn.linear_model, sklearn.metrics, sklearn.model_selection, sklearn.pipeline, sklearn.preprocessing, sklearn.tree  # noqa: F401
+        import docx, reportlab.platypus, openpyxl.chart  # noqa: F401  (thư viện xuất báo cáo)
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot  # noqa: F401
     except Exception:
         pass
 
@@ -74,7 +78,7 @@ class BodyLimitMiddleware:
 
 app = FastAPI(
     title="AI Report Studio – Dịch vụ phân tích dữ liệu",
-    version="0.6.0",
+    version="0.8.0",
     docs_url="/docs" if _settings.enable_docs else None,
     redoc_url=None,
     openapi_url="/openapi.json" if _settings.enable_docs else None,
@@ -86,4 +90,5 @@ app.include_router(datasets.router)
 app.include_router(analysis.router)
 app.include_router(finance_router.router)
 app.include_router(ai_router.router)
+app.include_router(reports.router)
 

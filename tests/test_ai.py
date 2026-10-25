@@ -4,11 +4,11 @@ import re
 import pytest
 
 from app.services import ai
-from tests import mock_gemini
+from tests import mock_groq
 from tests.test_datasets import call
 from tests.test_finance import CLEAN, FLAWED, parse
 
-KEY = "AIzaSy-test-key-should-never-leak-1234567"
+KEY = "gsk_test-key-should-never-leak-1234567"
 
 
 @pytest.fixture(scope="module")
@@ -28,13 +28,13 @@ def faithful(prompt: str, extra_text="", extra_refs=("F2",)):
 
 
 def prompt_of(body):
-    return body["contents"][0]["parts"][0]["text"]
+    return body["messages"][1]["content"]
 
 
 def run(monkeypatch, responder, clean, **extra):
-    srv, url, log = mock_gemini.start(responder)
+    srv, url, log = mock_groq.start(responder)
     monkeypatch.setenv("AIAR_AI_BASE_URL", url)
-    payload = {"analysis": clean["analysis"], "checks": clean["checks"], "model": "gemini-2.5-flash", "api_key": KEY, **extra}
+    payload = {"analysis": clean["analysis"], "checks": clean["checks"], "model": "openai/gpt-oss-120b", "api_key": KEY, **extra}
     try:
         r = call("/api/v1/ai/finance-commentary", payload)
     finally:
@@ -61,16 +61,16 @@ def test_number_verification_helpers():
 
 
 def test_commentary_success_and_request_shape(monkeypatch, clean):
-    r, log = run(monkeypatch, lambda m, k, b: mock_gemini.ok(json.dumps(faithful(prompt_of(b)), ensure_ascii=False)), clean)
+    r, log = run(monkeypatch, lambda m, k, b: mock_groq.ok(json.dumps(faithful(prompt_of(b)), ensure_ascii=False)), clean)
     assert r.status_code == 200, r.text
     d = r.json()
     assert d["verification"]["n_numbers_unverified"] == 0 and d["verification"]["n_numbers"] > 5
     assert d["commentary"]["summary"]["refs"] and set(d["commentary"]) >= {"summary", "highlights", "trends", "risks", "recommendations", "next_analyses"}
-    assert d["usage"]["prompt_tokens"] == 900 and d["model"] == "gemini-2.5-flash"
+    assert d["usage"]["prompt_tokens"] == 900 and d["model"] == "openai/gpt-oss-120b"
     req = log[0]
     assert req["key"] == KEY and not req["query"]  # khóa nằm ở tiêu đề, không nằm trên URL
-    assert req["model"] == "gemini-2.5-flash" and req["body"]["generationConfig"]["responseMimeType"] == "application/json"
-    assert "QUY TẮC BẮT BUỘC" in req["body"]["systemInstruction"]["parts"][0]["text"]
+    assert req["model"] == "openai/gpt-oss-120b" and req["body"]["response_format"] == {"type": "json_object"}
+    assert "QUY TẮC BẮT BUỘC" in req["body"]["messages"][0]["content"]
     prompt = prompt_of(req["body"])
     assert "F1:" in prompt and "xlsx" not in prompt and "An Phát" not in prompt
     assert KEY not in r.text  # khóa không bị trả lại
@@ -82,7 +82,7 @@ def test_hallucinated_numbers_and_bad_refs_are_flagged(monkeypatch, clean):
         out["highlights"][0] = {"text": "Doanh thu tăng 97,3% nhờ chiến dịch quảng cáo lớn.", "refs": ["F1"]}
         out["trends"][0] = {"text": "Xu hướng ổn định.", "refs": ["F999"]}
         return out
-    r, _ = run(monkeypatch, lambda m, k, b: mock_gemini.ok(json.dumps(bad(prompt_of(b)), ensure_ascii=False)), clean)
+    r, _ = run(monkeypatch, lambda m, k, b: mock_groq.ok(json.dumps(bad(prompt_of(b)), ensure_ascii=False)), clean)
     d = r.json()
     hl = d["commentary"]["highlights"][0]
     assert hl["unverified_numbers"] == ["97,3"] and d["verification"]["n_numbers_unverified"] == 1 and d["verification"]["n_items_with_unverified"] == 1
@@ -96,17 +96,18 @@ def test_code_fence_and_retry_on_bad_json(monkeypatch, clean):
     def resp(m, k, b):
         calls["n"] += 1
         if calls["n"] == 1:
-            return mock_gemini.ok("Đây là nhận xét của tôi: không phải JSON")
-        return mock_gemini.ok("```json\n" + json.dumps(faithful(prompt_of(b)), ensure_ascii=False) + "\n```")
+            return mock_groq.ok("Đây là nhận xét của tôi: không phải JSON")
+        return mock_groq.ok("```json\n" + json.dumps(faithful(prompt_of(b)), ensure_ascii=False) + "\n```")
     r, log = run(monkeypatch, resp, clean)
     assert r.status_code == 200 and len(log) == 2 and "không phải JSON hợp lệ" in prompt_of(log[1]["body"])
 
 
 @pytest.mark.parametrize("status,body,expect", [
-    (400, {"error": {"message": "API key not valid. Please pass a valid API key."}}, "Khóa API Gemini không hợp lệ"),
+    (401, {"error": {"message": "Invalid API Key", "code": "invalid_api_key"}}, "Khóa API Groq không hợp lệ"),
     (403, {"error": {"message": "denied"}}, "không có quyền"),
-    (404, {"error": {"message": "model not found"}}, "Không tìm thấy mô hình"),
-    (429, {"error": {"message": "quota"}}, "vượt hạn mức"),
+    (404, {"error": {"message": "The model `x` does not exist", "code": "model_not_found"}}, "Không tìm thấy mô hình"),
+    (400, {"error": {"message": "The model `x` has been decommissioned", "code": "model_decommissioned"}}, "Không tìm thấy mô hình"),
+    (429, {"error": {"message": "rate limit"}}, "vượt hạn mức"),
 ])
 def test_provider_errors_are_translated_without_leaking_key(monkeypatch, clean, status, body, expect):
     r, _ = run(monkeypatch, lambda m, k, b: (status, body), clean)
@@ -120,14 +121,14 @@ def test_server_error_retries_once_then_reports(monkeypatch, clean):
 
 
 def test_blocked_prompt_and_empty_response(monkeypatch, clean):
-    r, _ = run(monkeypatch, lambda m, k, b: (200, {"promptFeedback": {"blockReason": "SAFETY"}}), clean)
-    assert r.status_code == 422 and "bộ lọc an toàn" in r.json()["detail"]
-    r, _ = run(monkeypatch, lambda m, k, b: (200, {"candidates": []}), clean)
+    r, _ = run(monkeypatch, lambda m, k, b: (200, {"choices": []}), clean)
+    assert r.status_code == 422 and "không trả về nội dung" in r.json()["detail"]
+    r, _ = run(monkeypatch, lambda m, k, b: (200, {"choices": []}), clean)
     assert r.status_code == 422 and "không trả về nội dung" in r.json()["detail"]
 
 
 def test_missing_key_uses_environment_fallback(monkeypatch, clean):
-    srv, url, log = mock_gemini.start(lambda m, k, b: mock_gemini.ok(json.dumps(faithful(prompt_of(b)), ensure_ascii=False)))
+    srv, url, log = mock_groq.start(lambda m, k, b: mock_groq.ok(json.dumps(faithful(prompt_of(b)), ensure_ascii=False)))
     monkeypatch.setenv("AIAR_AI_BASE_URL", url)
     try:
         monkeypatch.delenv("AIAR_AI_API_KEY", raising=False)
@@ -150,13 +151,13 @@ def test_validation_of_inputs(monkeypatch, clean):
 
 
 def test_connection_test_endpoint(monkeypatch):
-    srv, url, log = mock_gemini.start(lambda m, k, b: mock_gemini.ok("OK"))
+    srv, url, log = mock_groq.start(lambda m, k, b: mock_groq.ok("OK"))
     monkeypatch.setenv("AIAR_AI_BASE_URL", url)
     try:
-        d = call("/api/v1/ai/test", {"model": "gemini-2.5-flash", "api_key": KEY}).json()
+        d = call("/api/v1/ai/test", {"model": "openai/gpt-oss-120b", "api_key": KEY}).json()
     finally:
         srv.shutdown()
-    assert d["ok"] and d["model"] == "gemini-2.5-flash" and "elapsed_ms" in d and log[0]["key"] == KEY
+    assert d["ok"] and d["model"] == "openai/gpt-oss-120b" and "elapsed_ms" in d and log[0]["key"] == KEY
 
 
 def test_flawed_data_is_surfaced_in_facts():
@@ -164,3 +165,8 @@ def test_flawed_data_is_surfaced_in_facts():
     facts = call("/api/v1/ai/facts", {"analysis": r["analysis"], "checks": r["checks"]}).json()["facts"]
     chk = next(f for f in facts if f["kind"] == "checks")
     assert "7 phép cộng/cân đối bị lệch" in chk["text"] and "4 lỗi gốc" in chk["text"] and "Tổng cộng tài sản kỳ 2023 lệch 500" in chk["text"]
+
+
+def test_gpt_oss_name_without_slash_gets_prefix(monkeypatch, clean):
+    r, log = run(monkeypatch, lambda m, k, b: mock_groq.ok(json.dumps(faithful(prompt_of(b)), ensure_ascii=False)), clean, model="gpt-oss-120b")
+    assert r.status_code == 200 and log[0]["model"] == "openai/gpt-oss-120b"

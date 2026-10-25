@@ -1,4 +1,4 @@
-"""AI nhận xét cho phân tích tài chính (dùng Gemini qua API).
+"""AI nhận xét cho phân tích tài chính (dùng Groq qua API tương thích OpenAI).
 
 Nguyên tắc:
 - Python tính toán mọi con số trước. AI chỉ nhận một danh sách "dữ kiện" đánh mã F1, F2... đã tổng hợp
@@ -18,8 +18,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .loader import LoadError
 
-DEFAULT_BASE = "https://generativelanguage.googleapis.com"
-MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$")
+DEFAULT_BASE = "https://api.groq.com/openai/v1"
+MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{2,63}$")
 SECTIONS = [("highlights", "Điểm nổi bật"), ("trends", "Xu hướng tăng giảm"), ("risks", "Rủi ro và điểm cần lưu ý"),
             ("recommendations", "Khuyến nghị có căn cứ"), ("next_analyses", "Phân tích nên làm tiếp")]
 MAX_ITEMS, MAX_TEXT = 6, 700
@@ -167,7 +167,7 @@ def build_user_prompt(facts: List[Dict[str, str]], detail: str) -> str:
             f"Trả về JSON theo cấu trúc:\n{json.dumps(schema, ensure_ascii=False)}")
 
 
-# ====================================================================== gọi Gemini
+# ====================================================================== gọi Groq
 def _base_url() -> str:
     base = os.getenv("AIAR_AI_BASE_URL", DEFAULT_BASE).rstrip("/")
     if not re.match(r"^https://|^http://(127\.0\.0\.1|localhost)(:\d+)?$", base):
@@ -177,30 +177,40 @@ def _base_url() -> str:
 
 def _error_for(status: int, body: str) -> AIError:
     low = body.lower()
-    if status == 401 or (status == 400 and any(k in low for k in ("api key not valid", "api_key_invalid", "key not valid"))):
-        return AIError("Khóa API Gemini không hợp lệ. Hãy kiểm tra lại khóa trong Cài đặt hệ thống.")
+    if status == 401 or "invalid api key" in low or "invalid_api_key" in low:
+        return AIError("Khóa API Groq không hợp lệ. Hãy kiểm tra lại khóa (bắt đầu bằng gsk_) trong Cài đặt hệ thống.")
     if status == 403:
-        return AIError("Khóa API Gemini không có quyền dùng mô hình này (hoặc dịch vụ chưa được bật cho khóa). Hãy kiểm tra khóa và tên mô hình.")
-    if status == 404:
+        return AIError("Khóa API Groq không có quyền dùng mô hình này hoặc yêu cầu bị chặn. Hãy kiểm tra khóa và tên mô hình.")
+    if status == 404 or "model_not_found" in low or "decommissioned" in low or "does not exist" in low:
         return AIError("Không tìm thấy mô hình AI với tên đã cấu hình. Hãy kiểm tra tên mô hình trong Cài đặt hệ thống.")
+    if status == 413:
+        return AIError("Dữ liệu gửi cho AI quá lớn so với giới hạn của mô hình. Hãy thử lại với báo cáo ngắn hơn.")
     if status == 429:
-        return AIError("Đã vượt hạn mức sử dụng Gemini (số yêu cầu hoặc số token). Hãy đợi một lúc rồi thử lại, hoặc kiểm tra hạn mức của khóa trong Google AI Studio.")
+        return AIError("Đã vượt hạn mức sử dụng Groq (số yêu cầu hoặc số token). Hãy đợi một lúc rồi thử lại, hoặc kiểm tra hạn mức trong GroqCloud.")
     if status == 400:
-        return AIError("Gemini từ chối yêu cầu (dữ liệu gửi không hợp lệ).")
-    return AIError(f"Dịch vụ Gemini đang gặp sự cố (mã {status}). Hãy thử lại sau.")
+        return AIError("Groq từ chối yêu cầu (dữ liệu gửi không hợp lệ).")
+    return AIError(f"Dịch vụ Groq đang gặp sự cố (mã {status}). Hãy thử lại sau.")
 
 
-def call_gemini(api_key: str, model: str, system: str, user: str, timeout: float = 35.0, max_tokens: int = 4096, json_mode: bool = True) -> Tuple[str, Dict[str, Any]]:
-    if not MODEL_RE.match(model or ""):
+def call_llm(api_key: str, model: str, system: str, user: str, timeout: float = 35.0, max_tokens: int = 4096, json_mode: bool = True) -> Tuple[str, Dict[str, Any]]:
+    """Gọi Groq qua API tương thích OpenAI (chat/completions). Trả về (văn bản, thống kê token)."""
+    if not MODEL_RE.match(model or "") or ".." in model:
         raise AIError("Tên mô hình AI không hợp lệ.")
+    if model.startswith("gpt-oss"):  # plugin WordPress không cho nhập dấu "/", nên tự thêm tiền tố của Groq
+        model = "openai/" + model
     if not api_key:
         raise AIError("Chưa cấu hình khóa API cho dịch vụ AI.")
-    url = f"{_base_url()}/v1beta/models/{model}:generateContent"
-    gen = {"temperature": 0.2, "maxOutputTokens": max_tokens}
+    url = f"{_base_url()}/chat/completions"
+    req_body: Dict[str, Any] = {"model": model, "temperature": 0.2, "max_completion_tokens": max_tokens,
+                                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
+    if model.startswith("openai/gpt-oss"):
+        req_body["reasoning_effort"] = "low"  # giảm thời gian "suy nghĩ" để trả lời nhanh hơn
     if json_mode:
-        gen["responseMimeType"] = "application/json"
-    body = json.dumps({"systemInstruction": {"parts": [{"text": system}]}, "contents": [{"role": "user", "parts": [{"text": user}]}], "generationConfig": gen}).encode("utf-8")
-    req = urllib.request.Request(url, data=body, method="POST", headers={"Content-Type": "application/json", "x-goog-api-key": api_key})
+        req_body["response_format"] = {"type": "json_object"}
+    body = json.dumps(req_body).encode("utf-8")
+    # Groq nằm sau Cloudflare: cần User-Agent riêng, nếu không urllib mặc định có thể bị chặn (lỗi 403/1010).
+    req = urllib.request.Request(url, data=body, method="POST", headers={
+        "Content-Type": "application/json", "Authorization": f"Bearer {api_key}", "User-Agent": "ai-report-service/1.0"})
     last: Optional[AIError] = None
     for attempt in (1, 2):
         try:
@@ -213,30 +223,30 @@ def call_gemini(api_key: str, model: str, system: str, user: str, timeout: float
             except Exception:
                 text = ""
             last = _error_for(exc.code, text)
-            if exc.code >= 500 and attempt == 1:
+            if (exc.code >= 500 or (exc.code == 400 and "json_validate_failed" in text.lower())) and attempt == 1:
                 time.sleep(1.5)
                 continue
+            if exc.code == 400 and "json_validate_failed" in text.lower():
+                last = AIError("Mô hình trả về JSON không hợp lệ. Hãy thử lại hoặc dùng mô hình khác.")
             raise last
         except (urllib.error.URLError, TimeoutError, OSError):
-            last = AIError("Không kết nối được tới dịch vụ Gemini hoặc quá thời gian chờ. Hãy thử lại.")
+            last = AIError("Không kết nối được tới dịch vụ Groq hoặc quá thời gian chờ. Hãy thử lại.")
             if attempt == 1:
                 time.sleep(1.0)
                 continue
             raise last
         except (ValueError, json.JSONDecodeError):
-            raise AIError("Gemini trả về dữ liệu không đọc được.")
-    block = (payload.get("promptFeedback") or {}).get("blockReason")
-    if block:
-        raise AIError("Gemini từ chối xử lý nội dung này (bị chặn bởi bộ lọc an toàn).")
-    cands = payload.get("candidates") or []
-    if not cands:
-        raise AIError("Gemini không trả về nội dung.")
-    parts = (cands[0].get("content") or {}).get("parts") or []
-    text = "".join(p.get("text", "") for p in parts if isinstance(p, dict) and not p.get("thought"))
-    if cands[0].get("finishReason") == "MAX_TOKENS" and not text.strip():
-        raise AIError("Phản hồi của Gemini bị cắt giữa chừng. Hãy thử lại hoặc dùng mô hình khác.")
-    usage = payload.get("usageMetadata") or {}
-    return text, {"prompt_tokens": usage.get("promptTokenCount"), "output_tokens": usage.get("candidatesTokenCount"), "finish_reason": cands[0].get("finishReason")}
+            raise AIError("Groq trả về dữ liệu không đọc được.")
+    choices = payload.get("choices") or []
+    if not choices:
+        raise AIError("Groq không trả về nội dung.")
+    msg = choices[0].get("message") or {}
+    text = msg.get("content") or ""
+    finish = choices[0].get("finish_reason")
+    if finish == "length" and not text.strip():
+        raise AIError("Phản hồi của AI bị cắt giữa chừng. Hãy thử lại hoặc dùng mô hình khác.")
+    usage = payload.get("usage") or {}
+    return text, {"prompt_tokens": usage.get("prompt_tokens"), "output_tokens": usage.get("completion_tokens"), "finish_reason": finish}
 
 
 def _parse_json(text: str) -> Optional[Dict[str, Any]]:
@@ -274,7 +284,7 @@ def validate(data: Dict[str, Any], facts: List[Dict[str, str]]) -> Tuple[Dict[st
     out: Dict[str, Any] = {}
     summ = _item(data.get("summary"), ids, allowed)
     if not summ:
-        raise AIError("Gemini trả về nhận xét thiếu phần tóm tắt. Hãy thử lại.")
+        raise AIError("AI trả về nhận xét thiếu phần tóm tắt. Hãy thử lại.")
     out["summary"] = summ
     for key, _ in SECTIONS:
         items = data.get(key) or []
@@ -294,13 +304,13 @@ def generate_finance_commentary(analysis: Dict[str, Any], checks: Optional[Dict[
     if len(facts) < 3:
         raise AIError("Chưa có đủ số liệu đã tính để AI nhận xét. Hãy chạy phân tích tài chính trước.")
     user = build_user_prompt(facts, detail)
-    text, usage = call_gemini(key, model, SYSTEM_PROMPT, user)
+    text, usage = call_llm(key, model, SYSTEM_PROMPT, user)
     data = _parse_json(text)
     if data is None:  # thử lại một lần, nhắc chỉ trả JSON
-        text, usage = call_gemini(key, model, SYSTEM_PROMPT, user + "\n\nLần trước câu trả lời không phải JSON hợp lệ. Hãy chỉ trả về đối tượng JSON.")
+        text, usage = call_llm(key, model, SYSTEM_PROMPT, user + "\n\nLần trước câu trả lời không phải JSON hợp lệ. Hãy chỉ trả về đối tượng JSON.")
         data = _parse_json(text)
     if data is None:
-        raise AIError("Gemini trả về nội dung không đúng định dạng yêu cầu. Hãy thử lại hoặc dùng mô hình khác.")
+        raise AIError("AI trả về nội dung không đúng định dạng yêu cầu. Hãy thử lại hoặc dùng mô hình khác.")
     commentary, ver = validate(data, facts)
     return {"model": model, "facts": facts, "facts_hash": facts_hash(facts), "commentary": commentary, "verification": ver, "usage": usage,
             "section_titles": {k: t for k, t in SECTIONS},
@@ -310,5 +320,5 @@ def generate_finance_commentary(analysis: Dict[str, Any], checks: Optional[Dict[
 def test_connection(model: str, api_key: Optional[str]) -> Dict[str, Any]:
     key = api_key or os.getenv("AIAR_AI_API_KEY", "")
     t0 = time.time()
-    text, usage = call_gemini(key, model, "Bạn là trợ lý kiểm tra kết nối.", "Chỉ trả lời đúng một từ: OK", timeout=25, max_tokens=512, json_mode=False)
+    text, usage = call_llm(key, model, "Bạn là trợ lý kiểm tra kết nối.", "Chỉ trả lời đúng một từ: OK", timeout=25, max_tokens=512, json_mode=False)
     return {"ok": True, "model": model, "elapsed_ms": int((time.time() - t0) * 1000), "usage": usage}

@@ -17,13 +17,13 @@ class FactsPayload(BaseModel):
 
 
 class CommentaryPayload(FactsPayload):
-    model: str = Field(default="gemini-2.5-flash", max_length=64)
+    model: str = Field(default="openai/gpt-oss-120b", max_length=64)
     api_key: Optional[str] = Field(default=None, max_length=300, repr=False)
     detail: str = Field(default="full", pattern="^(full|short)$")
 
 
 class TestPayload(BaseModel):
-    model: str = Field(default="gemini-2.5-flash", max_length=64)
+    model: str = Field(default="openai/gpt-oss-120b", max_length=64)
     api_key: Optional[str] = Field(default=None, max_length=300, repr=False)
 
 
