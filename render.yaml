@@ -7,5 +7,13 @@ services:
     envVars:
       - key: AIAR_SHARED_SECRET
         sync: false
+      - key: AIAR_SHARED_SECRET_PREVIOUS
+        sync: false
+      - key: AIAR_AI_MASK
+        value: "1"
+      - key: AIAR_RATE_PER_MIN
+        value: "120"
+      - key: AIAR_AUTH_FAIL_PER_MIN
+        value: "20"
       - key: AIAR_MAX_SKEW_SECONDS
         value: "300"

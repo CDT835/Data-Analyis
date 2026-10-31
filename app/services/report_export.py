@@ -307,6 +307,18 @@ def export_pdf(rep: Dict[str, Any]) -> bytes:
     return buf.getvalue()
 
 
+_FORMULA_PREFIX = ("=", "+", "-", "@", "\t", "\r", "\n")
+
+
+def _cell(ws, row: int, col: int, value=None):
+    """Ghi một ô Excel; chuỗi bắt đầu bằng = + - @ bị ép thành VĂN BẢN (chống tiêm công thức / CSV-injection)."""
+    c = ws.cell(row, col, value)
+    if isinstance(value, str) and value[:1] in _FORMULA_PREFIX:
+        c.data_type = "s"
+        c.quotePrefix = True
+    return c
+
+
 # ====================================================================== Excel
 def export_xlsx(rep: Dict[str, Any]) -> bytes:
     from openpyxl import Workbook
@@ -331,7 +343,7 @@ def export_xlsx(rep: Dict[str, Any]) -> bytes:
     def text_row(text, font, height_chars=120):
         nonlocal r
         ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=ncols)
-        c = ws.cell(r, 1, text)
+        c = _cell(ws, r, 1, text)
         c.font = font
         c.alignment = Alignment(wrap_text=True, vertical="top")
         ws.row_dimensions[r].height = max(18, 17 * (1 + len(text) // height_chars))
@@ -359,7 +371,7 @@ def export_xlsx(rep: Dict[str, Any]) -> bytes:
             if b.get("caption"):
                 text_row(b["caption"], F(bold=True))
             for j, h in enumerate(b["headers"][:ncols]):
-                c = ws.cell(r, j + 1, h)
+                c = _cell(ws, r, j + 1, h)
                 c.font, c.border, c.alignment = F(bold=True), box, Alignment(horizontal="center", vertical="center", wrap_text=True)
             ws.row_dimensions[r].height = 34
             r += 1
@@ -367,7 +379,7 @@ def export_xlsx(rep: Dict[str, Any]) -> bytes:
             for i, row in enumerate(b["rows"]):
                 for j, v in enumerate(row[:ncols]):
                     rv = raw[i][j] if raw and j < len(raw[i]) else None
-                    c = ws.cell(r, j + 1, rv if rv is not None else v)
+                    c = _cell(ws, r, j + 1, rv if rv is not None else v)
                     c.font, c.border = F(), box
                     if rv is not None:
                         c.number_format = nfs[i] if nfs else "0.00"
@@ -383,15 +395,15 @@ def export_xlsx(rep: Dict[str, Any]) -> bytes:
         elif t == "chart":
             text_row(b["fig"], F(bold=True))
             hdr = r
-            ws.cell(hdr, 1, "Kỳ").font = F(bold=True)
+            _cell(ws, hdr, 1, "Kỳ").font = F(bold=True)
             ws.row_dimensions[hdr].height = 48
             for j, s in enumerate(b["series"]):
-                hc = ws.cell(hdr, 2 + j, s["name"])
+                hc = _cell(ws, hdr, 2 + j, s["name"])
                 hc.font, hc.alignment = F(bold=True), Alignment(wrap_text=True, vertical="top")
             for i, lab in enumerate(b["labels"]):
-                ws.cell(hdr + 1 + i, 1, lab).font = F()
+                _cell(ws, hdr + 1 + i, 1, lab).font = F()
                 for j, s in enumerate(b["series"]):
-                    vc = ws.cell(hdr + 1 + i, 2 + j, s["values"][i])
+                    vc = _cell(ws, hdr + 1 + i, 2 + j, s["values"][i])
                     vc.font, vc.number_format = F(), "#,##0.00"
             last = hdr + len(b["labels"])
             ch = LineChart() if b["kind"] == "line" else BarChart()

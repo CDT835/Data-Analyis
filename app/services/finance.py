@@ -603,7 +603,7 @@ def analyze(periods, M, notes: List[str], unit: Optional[str]) -> Dict[str, Any]
         out_notes.append("Chỉ có 1 kỳ nên các chỉ số dùng giá trị bình quân được tính theo số cuối kỳ và không có phân tích tăng trưởng.")
     if any(b == "cuối kỳ" for it in R.values() for b in it["basis"] if b):
         out_notes.append("Với kỳ đầu tiên (hoặc kỳ thiếu số liệu kỳ trước), các chỉ số cần số bình quân được tính theo số cuối kỳ; xem cột cơ sở tính.")
-    out_notes.append(f"Có {n} kỳ báo cáo nên hệ thống không dự báo bằng mô hình thống kê (cần chuỗi dài hơn nhiều); chỉ phân tích xu hướng quá khứ.")
+    out_notes.append(f"Có {n} kỳ báo cáo; phần phân tích này chỉ mô tả quá khứ. Dự báo xu hướng (nếu có từ 3 kỳ) nằm ở mục riêng và có độ tin cậy thấp khi chuỗi ngắn.")
     latest = {}
     for key in ("net_revenue", "net_profit", "total_assets", "equity"):
         if key in M and val(key, n - 1) is not None:

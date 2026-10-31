@@ -11,7 +11,7 @@ from openpyxl import load_workbook
 from ..config import get_settings
 from .parsing import collapse_spaces, is_missing, preview_cell
 
-EXCEL_EXT = {"xlsx", "xlsm"}
+EXCEL_EXT = {"xlsx"}  # .xlsm (có macro) bị từ chối vì lý do bảo mật
 CSV_EXT = {"csv", "tsv", "txt"}
 
 
@@ -37,6 +37,8 @@ def detect_type(filename: str, raw: bytes) -> str:
     ext = file_ext(filename)
     if ext == "xls":
         raise LoadError("Định dạng .xls (Excel cũ) chưa được hỗ trợ. Hãy mở bằng Excel và lưu lại thành .xlsx.")
+    if ext in ("xlsm", "xlsb", "xltm", "xla"):
+        raise LoadError("Tệp Excel có macro (." + ext + ") không được hỗ trợ vì lý do bảo mật. Hãy mở bằng Excel và lưu lại thành .xlsx (không macro).")
     if ext in EXCEL_EXT:
         if not raw.startswith(b"PK\x03\x04"):
             raise LoadError("Tệp có đuôi Excel nhưng nội dung không phải file .xlsx hợp lệ.")
@@ -47,7 +49,7 @@ def detect_type(filename: str, raw: bytes) -> str:
         if b"\x00" in raw[:4096] and not raw.startswith((b"\xff\xfe", b"\xfe\xff")):
             raise LoadError("Tệp CSV không phải văn bản (chứa dữ liệu nhị phân).")
         return "csv"
-    raise LoadError("Chỉ hỗ trợ tệp .csv, .tsv, .txt, .xlsx, .xlsm.")
+    raise LoadError("Chỉ hỗ trợ tệp .csv, .tsv, .txt, .xlsx.")
 
 
 # ------------------------------------------------------------------ tiêu đề
@@ -125,8 +127,16 @@ def _open_workbook(raw: bytes):
         zf = zipfile.ZipFile(io.BytesIO(raw))
     except zipfile.BadZipFile:
         raise LoadError("File Excel bị hỏng hoặc không đúng định dạng .xlsx.")
-    if sum(i.file_size for i in zf.infolist()) > 200 * 1024 * 1024:
+    infos = zf.infolist()
+    if len(infos) > 2000:
+        raise LoadError("File Excel có số thành phần bất thường nên bị từ chối.")
+    if sum(i.file_size for i in infos) > 200 * 1024 * 1024:
         raise LoadError("File Excel sau khi giải nén quá lớn (trên 200 MB).")
+    for i in infos:  # "bom nén": phần nhỏ khi nén nhưng phình rất lớn khi giải nén
+        if i.file_size > 5 * 1024 * 1024 and i.file_size > 150 * max(1, i.compress_size):
+            raise LoadError("File Excel có thành phần nén bất thường (nghi là tệp bom nén) nên bị từ chối.")
+        if i.filename.lower().endswith("vbaproject.bin"):
+            raise LoadError("File chứa macro (VBA) nên bị từ chối vì lý do bảo mật.")
     try:
         return load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
     except Exception:

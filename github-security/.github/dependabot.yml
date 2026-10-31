@@ -1,0 +1,17 @@
+# Tự mở Pull Request khi thư viện Python / GitHub Actions có bản vá bảo mật hoặc bản mới.
+# Đặt tệp này ở GỐC repo: .github/dependabot.yml. Sửa "directory" nếu requirements.txt nằm ở thư mục con.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/ai-report-service"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+  - package-ecosystem: "docker"
+    directory: "/ai-report-service"
+    schedule:
+      interval: "monthly"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"

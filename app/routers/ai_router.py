@@ -22,6 +22,10 @@ class CommentaryPayload(FactsPayload):
     detail: str = Field(default="full", pattern="^(full|short)$")
 
 
+class AskPayload(CommentaryPayload):
+    question: str = Field(min_length=1, max_length=600)
+
+
 class TestPayload(BaseModel):
     model: str = Field(default="openai/gpt-oss-120b", max_length=64)
     api_key: Optional[str] = Field(default=None, max_length=300, repr=False)
@@ -47,6 +51,11 @@ def facts(p: FactsPayload):
 @router.post("/finance-commentary")
 def commentary(p: CommentaryPayload):
     return _run(lambda: ai.generate_finance_commentary(p.analysis, p.checks, p.model, p.api_key, p.detail))
+
+
+@router.post("/ask")
+def ask(p: AskPayload):
+    return _run(lambda: ai.ask_question(p.analysis, p.checks, p.question, p.model, p.api_key))
 
 
 @router.post("/test")
