@@ -9,7 +9,7 @@ from ..auth import verify_signature
 router = APIRouter()
 _started_at = time.time()
 
-_LIBS = ["fastapi", "pandas", "numpy", "openpyxl", "scikit-learn", "python-docx", "reportlab", "matplotlib"]
+_LIBS = ["fastapi", "pandas", "numpy", "openpyxl", "scikit-learn", "python-docx", "python-pptx", "reportlab", "matplotlib"]
 
 
 def _version(name: str) -> str:

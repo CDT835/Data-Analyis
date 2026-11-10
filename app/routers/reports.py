@@ -37,11 +37,13 @@ class RenderPayload(BaseModel):
     org: str = Field(default="", max_length=200)
     date: Optional[str] = Field(default=None, max_length=20)
     blocks: List[Dict[str, Any]] = Field(max_length=500)
-    format: str = Field(pattern="^(docx|pdf|xlsx)$")
+    format: str = Field(pattern="^(docx|pdf|xlsx|pptx)$")
+    logo_b64: Optional[str] = Field(default=None, max_length=600000)
 
 
 class ExportPayload(ReportPayload):
-    format: str = Field(pattern="^(docx|pdf|xlsx)$")
+    format: str = Field(pattern="^(docx|pdf|xlsx|pptx)$")
+    logo_b64: Optional[str] = Field(default=None, max_length=600000)
 
 
 def _build(p: ReportPayload) -> Dict[str, Any]:
@@ -66,7 +68,7 @@ def preview(p: ReportPayload):
 
 @router.post("/export")
 def export(p: ExportPayload):
-    return _export(_build(p), p.format)
+    return _export(_build(p), p.format, p.logo_b64)
 
 
 @router.post("/render")
@@ -76,11 +78,12 @@ def render(p: RenderPayload):
         rep = normalize_document(p.title, p.org, p.date, p.blocks)
     except LoadError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    return _export(rep, p.format)
+    return _export(rep, p.format, p.logo_b64)
 
 
-def _export(rep: Dict[str, Any], fmt: str) -> Dict[str, Any]:
+def _export(rep: Dict[str, Any], fmt: str, logo_b64: Optional[str] = None) -> Dict[str, Any]:
     try:
+        rep = dict(rep, logo=report_export.prepare_logo(logo_b64))
         data = report_export.EXPORTERS[fmt](rep)
     except Exception:
         raise HTTPException(status_code=500, detail="Không tạo được tệp báo cáo. Hãy thử lại hoặc chọn định dạng khác.")

@@ -14,7 +14,41 @@ from xml.sax.saxutils import escape
 PALETTE = ["#1f3a5f", "#8a1c1c", "#2e6b3a", "#6b4e16", "#555555", "#4b2a6b", "#0f6b6b", "#999999"]
 CALLOUT_LABEL = {"warn": "Cảnh báo", "info": "Lưu ý", "ok": "Kết quả"}
 MIME = {"docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "pdf": "application/pdf",
-        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation"}
+
+
+def prepare_logo(b64: Any) -> Any:
+    """Giải mã và chuẩn hóa logo (PNG/JPEG, tối đa ~400 KB) thành PNG nền trắng; trả None nếu không hợp lệ."""
+    import base64
+    if not b64 or not isinstance(b64, str) or len(b64) > 600000:
+        return None
+    try:
+        from PIL import Image
+        raw = base64.b64decode(b64, validate=True)
+        if len(raw) > 450000:
+            return None
+        im = Image.open(io.BytesIO(raw))
+        if im.format not in ("PNG", "JPEG") or im.width * im.height > 12_000_000:
+            return None
+        im = im.convert("RGBA")
+        bg = Image.new("RGBA", im.size, (255, 255, 255, 255))
+        bg.alpha_composite(im)
+        out = bg.convert("RGB")
+        out.thumbnail((600, 300))
+        buf = io.BytesIO()
+        out.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception:
+        return None
+
+
+def _logo_size(logo: bytes, max_w: float, max_h: float):
+    """Kích thước hiển thị giữ tỉ lệ, vừa khung max_w x max_h (cùng đơn vị)."""
+    from PIL import Image
+    w, h = Image.open(io.BytesIO(logo)).size
+    k = min(max_w / w, max_h / h)
+    return w * k, h * k
 
 
 def safe_filename(title: str, ext: str) -> str:
@@ -184,9 +218,14 @@ def export_docx(rep: Dict[str, Any]) -> bytes:
     for b in rep["blocks"]:
         t = b["t"]
         if t == "title":
+            if rep.get("logo"):
+                lw, lh = _logo_size(rep["logo"], 6.0, 2.8)
+                lp = doc.add_paragraph()
+                lp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                lp.add_run().add_picture(io.BytesIO(rep["logo"]), width=Cm(lw), height=Cm(lh))
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            p.paragraph_format.space_before = Pt(60)
+            p.paragraph_format.space_before = Pt(60 if not rep.get("logo") else 24)
             run(p, b["text"].upper(), 18, True)
             p2 = doc.add_paragraph()
             p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -279,6 +318,10 @@ def export_pdf(rep: Dict[str, Any]) -> bytes:
     for b in rep["blocks"]:
         t = b["t"]
         if t == "title":
+            if rep.get("logo"):
+                lw, lh = _logo_size(rep["logo"], 6.0 * cm, 2.8 * cm)
+                flow += [Spacer(1, 60), Image(io.BytesIO(rep["logo"]), width=lw, height=lh)]
+                st["title"].spaceBefore = 30
             flow += [Paragraph(escape(b["text"].upper()), st["title"]), Paragraph(escape(b.get("subtitle", "")), st["sub"])]
         elif t == "heading":
             flow.append(Paragraph(escape(f"{b['num']}. {b['text']}"), st["h1"] if b["level"] == 1 else st["h2"]))
@@ -421,4 +464,180 @@ def export_xlsx(rep: Dict[str, Any]) -> bytes:
     return buf.getvalue()
 
 
-EXPORTERS = {"docx": export_docx, "pdf": export_pdf, "xlsx": export_xlsx}
+# ====================================================================== PowerPoint
+def export_pptx(rep: Dict[str, Any]) -> bytes:
+    """Slide 16:9, Times New Roman, chữ đen nền trắng. Mỗi mục cấp 1 là một hoặc nhiều slide; bảng và biểu đồ có slide riêng."""
+    from pptx import Presentation
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+    from pptx.util import Cm, Pt
+
+    prs = Presentation()
+    prs.slide_width, prs.slide_height = Cm(33.867), Cm(19.05)
+    blank = prs.slide_layouts[6]
+    BLACK = RGBColor(0, 0, 0)
+    SW, SH = 33.867, 19.05
+    state = {"title": rep["title"], "n": 0}
+
+    def style(run, size, bold=False, italic=False):
+        run.font.name, run.font.size, run.font.bold, run.font.italic = "Times New Roman", Pt(size), bold, italic
+        run.font.color.rgb = BLACK
+
+    def new_slide(title, cont=False):
+        sl = prs.slides.add_slide(blank)
+        state["n"] += 1
+        tb = sl.shapes.add_textbox(Cm(1.8), Cm(0.9), Cm(SW - 3.6), Cm(2.0))
+        tf = tb.text_frame
+        tf.word_wrap = True
+        r = tf.paragraphs[0].add_run()
+        r.text = title + (" (tiếp)" if cont else "")
+        style(r, 28, True)
+        ft = sl.shapes.add_textbox(Cm(1.8), Cm(SH - 1.3), Cm(SW - 3.6), Cm(0.8))
+        fr = ft.text_frame.paragraphs[0]
+        fr.alignment = PP_ALIGN.RIGHT
+        rr = fr.add_run()
+        rr.text = str(state["n"])
+        style(rr, 12)
+        return sl
+
+    def text_box(sl, items, top=3.2):
+        """items: list[(text, kind)] kind: p | li | note."""
+        tb = sl.shapes.add_textbox(Cm(1.8), Cm(top), Cm(SW - 3.6), Cm(SH - top - 1.8))
+        tf = tb.text_frame
+        tf.word_wrap = True
+        first = True
+        for text, kind in items:
+            para = tf.paragraphs[0] if first else tf.add_paragraph()
+            first = False
+            para.space_after = Pt(8)
+            r = para.add_run()
+            r.text = ("•  " if kind == "li" else "") + text
+            style(r, 20, False, kind == "note")
+
+    def chunk_items(items, limit=700):
+        out, cur, size = [], [], 0
+        for it in items:
+            ln = len(it[0]) + 40
+            if cur and size + ln > limit:
+                out.append(cur)
+                cur, size = [], 0
+            cur.append(it)
+            size += ln
+        if cur:
+            out.append(cur)
+        return out
+
+    # ---- slide tiêu đề
+    sl = prs.slides.add_slide(blank)
+    state["n"] += 1
+    y = 3.0
+    if rep.get("logo"):
+        lw, lh = _logo_size(rep["logo"], 7.0, 3.2)
+        sl.shapes.add_picture(io.BytesIO(rep["logo"]), Cm((SW - lw) / 2), Cm(y), Cm(lw), Cm(lh))
+        y += lh + 0.8
+    title_b = next((b for b in rep["blocks"] if b["t"] == "title"), None)
+    tb = sl.shapes.add_textbox(Cm(2.5), Cm(y + 1.5), Cm(SW - 5), Cm(5))
+    tf = tb.text_frame
+    tf.word_wrap = True
+    p1 = tf.paragraphs[0]
+    p1.alignment = PP_ALIGN.CENTER
+    r = p1.add_run()
+    r.text = (title_b["text"] if title_b else rep["title"]).upper()
+    style(r, 36, True)
+    p2 = tf.add_paragraph()
+    p2.alignment = PP_ALIGN.CENTER
+    r2 = p2.add_run()
+    r2.text = (title_b or {}).get("subtitle", "")
+    style(r2, 20, False, True)
+
+    # ---- nội dung
+    heading, pending = rep["title"], []
+    used = {"h": False}
+
+    def flush():
+        for i, ch in enumerate(chunk_items(pending)):
+            s2 = new_slide(heading, cont=(i > 0 or used["h"]))
+            used["h"] = True
+            text_box(s2, ch)
+        pending.clear()
+
+    for b in rep["blocks"]:
+        t = b["t"]
+        if t == "title":
+            continue
+        if t == "heading":
+            if b["level"] == 1:
+                flush()
+                heading, used["h"] = f"{b['num']}. {b['text']}", False
+            else:
+                pending.append((f"{b['num']}. {b['text']}", "note"))
+        elif t == "para":
+            pending.append((b["text"], "p"))
+        elif t == "bullets":
+            pending.extend((i, "li") for i in b["items"])
+        elif t == "callout":
+            pending.append((CALLOUT_LABEL.get(b["kind"], "Lưu ý") + ": " + b["text"], "note"))
+        elif t in ("table", "kpis"):
+            flush()
+            if t == "kpis":
+                headers, rows = ["Chỉ tiêu", "Giá trị", "So sánh"], [[k["label"], k["value"], k["delta"]] for k in b["items"]]
+                cap = ""
+            else:
+                headers, rows, cap = b["headers"], b["rows"], b.get("caption", "")
+            per = 11
+            for start in range(0, max(1, len(rows)), per):
+                part = rows[start:start + per]
+                s2 = new_slide(heading, cont=used["h"])
+                used["h"] = True
+                top = 3.0
+                if cap:
+                    cb = s2.shapes.add_textbox(Cm(1.8), Cm(2.7), Cm(SW - 3.6), Cm(1.0))
+                    cr = cb.text_frame.paragraphs[0].add_run()
+                    cr.text = cap
+                    style(cr, 16, True)
+                    top = 3.8
+                n = len(headers)
+                shape = s2.shapes.add_table(len(part) + 1, n, Cm(1.8), Cm(top), Cm(SW - 3.6), Cm(0.9 * (len(part) + 1)))
+                tbl = shape.table
+                for j, h in enumerate(headers):
+                    cell = tbl.cell(0, j)
+                    cell.text = str(h)
+                    cell.fill.solid()
+                    cell.fill.fore_color.rgb = RGBColor(0xD9, 0xD9, 0xD9)
+                    for run_ in cell.text_frame.paragraphs[0].runs:
+                        style(run_, 14, True)
+                for i, row in enumerate(part):
+                    for j in range(n):
+                        cell = tbl.cell(i + 1, j)
+                        cell.text = str(row[j]) if j < len(row) else ""
+                        cell.fill.solid()
+                        cell.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+                        para = cell.text_frame.paragraphs[0]
+                        if j > 0:
+                            para.alignment = PP_ALIGN.RIGHT
+                        for run_ in para.runs:
+                            style(run_, 14)
+        elif t == "chart":
+            flush()
+            s2 = new_slide(heading, cont=used["h"])
+            used["h"] = True
+            from PIL import Image as _Im
+            png = chart_png(b, 130)
+            w, h = _Im.open(io.BytesIO(png)).size
+            maxw, maxh = SW - 4.0, SH - 6.2
+            k = min(maxw / w, maxh / h)
+            s2.shapes.add_picture(io.BytesIO(png), Cm((SW - w * k) / 2), Cm(3.0), Cm(w * k), Cm(h * k))
+            fb = s2.shapes.add_textbox(Cm(1.8), Cm(3.0 + h * k + 0.2), Cm(SW - 3.6), Cm(1.0))
+            fp = fb.text_frame.paragraphs[0]
+            fp.alignment = PP_ALIGN.CENTER
+            fr = fp.add_run()
+            fr.text = b.get("fig", "")
+            style(fr, 14, False, True)
+    flush()
+    prs.core_properties.title = rep["title"]
+    buf = io.BytesIO()
+    prs.save(buf)
+    return buf.getvalue()
+
+
+EXPORTERS = {"docx": export_docx, "pdf": export_pdf, "xlsx": export_xlsx, "pptx": export_pptx}

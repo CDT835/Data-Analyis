@@ -133,3 +133,58 @@ def test_text_columns_of_hand_made_tables_are_left_aligned():
     assert tb["num_cols"] == [1]  # chỉ cột toàn số mới căn phải
     doc = normalize_document("T", "", None, [{"t": "table", "headers": ["A", "B"], "rows": [["x", "y"]]}])
     assert [b for b in doc["blocks"] if b["t"] == "table"][0]["num_cols"] == []
+
+
+def _logo_b64(fmt="PNG"):
+    from PIL import Image
+    im = Image.new("RGB", (400, 150), (21, 88, 201))
+    buf = io.BytesIO()
+    im.save(buf, fmt)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def test_logo_in_docx_and_pdf_and_bad_logo_ignored():
+    import docx
+    base = render(DOC, "docx")
+    d0 = docx.Document(io.BytesIO(base64.b64decode(base.json()["content_b64"])))
+    for fmt in ("PNG", "JPEG"):
+        r = render(DOC, "docx", logo_b64=_logo_b64(fmt))
+        assert r.status_code == 200
+        d = docx.Document(io.BytesIO(base64.b64decode(r.json()["content_b64"])))
+        assert len(d.inline_shapes) == len(d0.inline_shapes) + 1  # thêm đúng một ảnh: logo
+    p = render(DOC, "pdf", logo_b64=_logo_b64())
+    assert p.status_code == 200 and base64.b64decode(p.json()["content_b64"])[:4] == b"%PDF"
+    for bad in ("khong-phai-anh", base64.b64encode(b"GIF89a....").decode(), "A" * 700000):
+        r = render(DOC, "docx", logo_b64=bad)
+        assert r.status_code in (200, 422)
+        if r.status_code == 200:
+            dd = docx.Document(io.BytesIO(base64.b64decode(r.json()["content_b64"])))
+            assert len(dd.inline_shapes) == len(d0.inline_shapes)
+    assert render(DOC, "xlsx", logo_b64=_logo_b64()).status_code == 200
+
+
+def test_export_pptx_structure_and_logo():
+    from pptx import Presentation
+    r = render(DOC, "pptx", logo_b64=_logo_b64())
+    assert r.status_code == 200 and r.json()["mime"].endswith("presentationml.presentation") and r.json()["filename"].endswith(".pptx")
+    prs = Presentation(io.BytesIO(base64.b64decode(r.json()["content_b64"])))
+    slides = list(prs.slides)
+    assert len(slides) >= 5  # tiêu đề + Mở đầu + bảng + biểu đồ + Kết luận
+    first = slides[0]
+    assert any(sh.shape_type == 13 for sh in first.shapes)  # logo trên slide tiêu đề
+    assert "BÁO CÁO TỰ SOẠN" in " ".join(sh.text_frame.text for sh in first.shapes if sh.has_text_frame)
+    assert any(sh.has_table for s in slides for sh in s.shapes)
+    assert sum(1 for s in slides for sh in s.shapes if sh.shape_type == 13) == 2  # logo + biểu đồ
+    no_logo = render(DOC, "pptx")
+    p2 = Presentation(io.BytesIO(base64.b64decode(no_logo.json()["content_b64"])))
+    assert sum(1 for s in p2.slides for sh in s.shapes if sh.shape_type == 13) == 1
+
+
+def test_export_pptx_long_text_and_table_split():
+    from pptx import Presentation
+    blocks = [{"t": "heading", "level": 1, "text": "Dài"}] + [{"t": "para", "text": "Câu văn rất dài. " * 30} for _ in range(6)]
+    blocks.append({"t": "table", "headers": ["A", "B"], "rows": [[str(i), str(i * 2)] for i in range(25)]})
+    r = render(blocks, "pptx")
+    assert r.status_code == 200
+    prs = Presentation(io.BytesIO(base64.b64decode(r.json()["content_b64"])))
+    assert len(prs.slides) >= 6  # văn bản tách nhiều slide, bảng 25 dòng tách 3 slide

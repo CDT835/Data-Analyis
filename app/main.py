@@ -15,7 +15,7 @@ def _warm_up() -> None:
     try:
         import sklearn.cluster, sklearn.compose, sklearn.dummy, sklearn.ensemble, sklearn.inspection  # noqa: F401
         import sklearn.linear_model, sklearn.metrics, sklearn.model_selection, sklearn.pipeline, sklearn.preprocessing, sklearn.tree  # noqa: F401
-        import docx, reportlab.platypus, openpyxl.chart  # noqa: F401  (thư viện xuất báo cáo)
+        import docx, pptx, reportlab.platypus, openpyxl.chart  # noqa: F401  (thư viện xuất báo cáo)
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot  # noqa: F401

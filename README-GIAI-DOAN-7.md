@@ -62,3 +62,7 @@ python -m pytest -q          # 76 test
 ## 0.23.0 — Nhóm A: phân tích nâng cao (dịch vụ Python)
 
 Thêm `app/services/finance_ext.py` và các điểm vào `POST /api/v1/finance/forecast`, `/finance/health-score`, `/finance/scenario`, `POST /api/v1/ai/ask`. Dự báo dùng hồi quy tuyến tính (OLS) với khoảng dự đoán 80%, từ chối khi dưới 3 kỳ hoặc kỳ không cùng loại. Hỏi đáp dùng cùng cơ chế đối chiếu số và che dữ liệu như phần nhận xét. Có thêm 13 test (`tests/test_finance_ext.py`).
+
+## 0.24.0 — Nhóm B (chỉ thay đổi phía plugin)
+
+Dịch vụ Python không thay đổi so với 0.23.0; không cần triển khai lại dịch vụ cho bản này.
