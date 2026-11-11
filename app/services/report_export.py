@@ -28,7 +28,7 @@ def prepare_logo(b64: Any) -> Any:
         raw = base64.b64decode(b64, validate=True)
         if len(raw) > 450000:
             return None
-        im = Image.open(io.BytesIO(raw))
+        im = Image.open(io.BytesIO(raw), formats=["PNG", "JPEG"])  # chỉ cho phép hai bộ giải mã này
         if im.format not in ("PNG", "JPEG") or im.width * im.height > 12_000_000:
             return None
         im = im.convert("RGBA")
