@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from . import ai as aimod
 from .ai import vn, vnum, vpct
 from .loader import LoadError
+from .report_forms import FORMS, fill_form
 from .report_catalog import NEEDS_LABEL, ORDER, SECTIONS, TEMPLATES, available_statements
 
 MAX_CHARTS = 10
@@ -331,10 +332,37 @@ def s_notes(c: _Ctx, tpl):
     return [{"t": "bullets", "items": items}]
 
 
+def _form_builder(key: str):
+    def build(c: _Ctx, tpl):
+        f = FORMS[key]
+        r = fill_form(key, c.statements)
+        if not r["periods"] or not (r["found"] or r["calc"]):
+            raise Skip("Dữ liệu chưa có dòng nào khớp mã số của biểu mẫu này.")
+        keep = list(range(len(r["periods"])))[-4:]
+        heads = [r["periods"][i]["label"] for i in keep]
+        rows, raw, nfs = [], [], []
+        for ln in r["rows"]:
+            vals = [ln["values"][i] for i in keep]
+            mark = " (tính lại)" if ln["calc"] else ""
+            rows.append(["\u00a0\u00a0\u00a0" * ln["level"] + ln["label"] + mark, ln["code"]] + [vn(v, 0) if v is not None else "—" for v in vals])
+            raw.append([None, None] + vals)
+            nfs.append("#,##0")
+        miss = r["total"] - r["found"] - r["calc"]
+        unit = c.unit or "đơn vị trong báo cáo gốc"
+        out = [{"t": "para", "text": f"Mẫu {f['code']}. Đơn vị tính: {unit}. Đã lấy trực tiếp {r['found']}/{r['total']} dòng theo mã số từ dữ liệu; "
+                                     f"{r['calc']} dòng được tính lại từ các dòng con theo công thức của biểu mẫu (ghi chú \"tính lại\"); {miss} dòng không có số liệu (hiển thị \"—\")."},
+               {"t": "table", "caption": f["title"], "headers": ["Chỉ tiêu", "Mã số"] + heads, "rows": rows, "raw": raw, "nf": nfs, "num_cols": list(range(2, 2 + len(heads)))}]
+        if len(r["periods"]) > 4:
+            out.append({"t": "para", "text": f"Biểu mẫu chỉ hiển thị 4 kỳ gần nhất trong {len(r['periods'])} kỳ có dữ liệu."})
+        return out
+    return build
+
+
 BUILDERS = {"info": s_info, "scope": s_scope, "data_checks": s_data_checks, "kpis": s_kpis, "revenue_profit_chart": s_revenue_profit_chart,
             "liquidity": s_liquidity, "leverage": s_leverage, "profitability": s_profitability, "efficiency": s_efficiency, "dupont": s_dupont,
             "growth": s_growth, "vertical": s_vertical, "alerts": s_alerts, "mapping": s_mapping, "ai_summary": s_ai_summary,
-            "ai_detail": s_ai_detail, "ai_reco": s_ai_reco, "notes": s_notes}
+            "ai_detail": s_ai_detail, "ai_reco": s_ai_reco, "notes": s_notes,
+            "form_bs_tt200": _form_builder("bs_tt200"), "form_is_tt200": _form_builder("is_tt200"), "form_is_tt133": _form_builder("is_tt133")}
 assert set(BUILDERS) == set(SECTIONS)
 
 

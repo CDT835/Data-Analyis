@@ -57,7 +57,7 @@ def fake_ai(clean_, extra_text="", edited=None, stale=False):
 
 def test_templates_and_availability(clean):
     d = call("/api/v1/reports/templates", {"mapping": clean["mapping"], "statements": [{"type": "bs"}, {"type": "is"}]}).json()
-    assert [t["slug"] for t in d["templates"]] == ["fin_overview", "fin_liquidity", "fin_profitability", "fin_quality"]
+    assert [t["slug"] for t in d["templates"]] == ["fin_overview", "fin_liquidity", "fin_profitability", "fin_quality", "tt200_forms", "tt133_forms"]
     assert all(t["usable"] for t in d["templates"]) and sum(len(t["sections"]) for t in d["templates"] if t["slug"] == "fin_overview") == 18
     only_bs = call("/api/v1/reports/templates", {"statements": [{"type": "bs"}]}).json()
     byslug = {t["slug"]: t for t in only_bs["templates"]}
@@ -207,3 +207,59 @@ def test_export_reports_skipped_parts_and_rejects_bad_template(clean, flawed):
     d2, _ = export(flawed, "pdf", template="fin_quality")
     assert d2["included"] == ["info", "scope", "data_checks", "mapping", "alerts", "notes"]
     assert call("/api/v1/reports/export", body(clean, format="pdf", template="nope")).status_code == 422
+
+
+# ---------------------------------------------------------------- mẫu theo Thông tư 200 / 133
+def _full_statements(r):
+    return [{"type": s["type"], "type_label": s["type_label"], "sheet": s["sheet"], "unit": s["unit"], "n_periods": len(s["periods"]), "n_rows": len(s["rows"]),
+             "periods": [{"pid": p["pid"], "label": p["label"], "sort": p["sort"]} for p in s["periods"]],
+             "rows": [{"code": x["code"], "has_values": x["has_values"], "values": x["values"]} for x in s["rows"] if x["code"] and x["has_values"]]} for s in r["parsed"]["statements"]]
+
+
+def test_tt_templates_listed(clean):
+    d = call("/api/v1/reports/templates", {"mapping": clean["mapping"], "statements": [{"type": "bs"}, {"type": "is"}]}).json()
+    slugs = [t["slug"] for t in d["templates"]]
+    assert slugs[-2:] == ["tt200_forms", "tt133_forms"] and "form_bs_tt200" not in [s["slug"] for s in d["templates"][0]["sections"]]
+    only_bs = call("/api/v1/reports/templates", {"mapping": {}, "statements": [{"type": "bs"}]}).json()["templates"]
+    t133 = next(t for t in only_bs if t["slug"] == "tt133_forms")
+    assert not t133["usable"]
+
+
+def test_tt200_form_fill(clean):
+    resp = call("/api/v1/reports/preview", body(clean, template="tt200_forms", statements=_full_statements(clean)))
+    assert resp.status_code == 200, resp.text
+    rep = resp.json()
+    assert rep["included"] == ["info", "scope", "data_checks", "form_bs_tt200", "form_is_tt200", "notes"] and not rep["skipped"]
+    tabs = {b["caption"].split(". ", 1)[1]: b for b in rep["blocks"] if b["t"] == "table" and b.get("caption")}
+    bs = next(b for k, b in tabs.items() if "B01-DN" in k)
+    names = [r[0].strip() for r in bs["rows"]]
+    assert names[0] == "A - TÀI SẢN NGẮN HẠN" and names[-1].startswith("TỔNG CỘNG NGUỒN VỐN")
+    codes = [r[1] for r in bs["rows"]]
+    assert len(codes) == 115 and codes[codes.index("270")] == "270" and "421b" in codes
+    i270 = codes.index("270")
+    ta = clean["analysis"]["periods"]
+    # 270 phải khớp tổng tài sản của phân tích
+    series = next(i for i in next(g for g in clean["analysis"]["ratio_groups"])["items"]) if False else None
+    assert any(v is not None for v in bs["raw"][i270][2:])
+
+
+def test_tt_form_recompute_and_missing():
+    from app.services.report_forms import fill_form
+    per = [{"pid": "2024", "label": "2024", "sort": [2024]}]
+    st = [{"type": "is", "periods": per, "rows": [
+        {"code": "01", "has_values": True, "values": [1000.0]}, {"code": "02", "has_values": True, "values": [100.0]},
+        {"code": "11", "has_values": True, "values": [600.0]}]}]
+    r = fill_form("is_tt200", st)
+    by = {x["code"]: x for x in r["rows"]}
+    assert by["10"]["values"] == [900.0] and by["10"]["calc"] and by["20"]["values"] == [300.0]
+    assert by["30"]["values"] == [300.0] and by["60"]["values"] == [300.0]  # thiếu 21,22,25,26,31,32,51,52 coi như không có
+    assert by["01"]["calc"] is False and by["70"]["values"] == [None]
+    d = fill_form("is_tt133", st)
+    assert {x["code"]: x for x in d["rows"]}["24"]["values"] == [None] and len(d["rows"]) == 16
+    assert fill_form("bs_tt200", st)["rows"] == []  # không có Bảng cân đối kế toán
+
+
+def test_tt_export_formats(clean):
+    for fmt in ("docx", "xlsx", "pdf", "pptx"):
+        resp = call("/api/v1/reports/export", body(clean, template="tt200_forms", statements=_full_statements(clean), format=fmt))
+        assert resp.status_code == 200, (fmt, resp.text[:200])

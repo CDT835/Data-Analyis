@@ -25,8 +25,11 @@ SECTIONS: Dict[str, Dict[str, Any]] = {
     "ai_detail": {"title": "Nhận xét chi tiết của AI", "needs": None},
     "ai_reco": {"title": "Khuyến nghị và phân tích nên làm tiếp", "needs": None},
     "notes": {"title": "Ghi chú và giới hạn của phân tích", "needs": None},
+    "form_bs_tt200": {"title": "Bảng cân đối kế toán (Mẫu B01-DN)", "needs": "bs"},
+    "form_is_tt200": {"title": "Báo cáo kết quả hoạt động kinh doanh (Mẫu B02-DN)", "needs": "is"},
+    "form_is_tt133": {"title": "Báo cáo kết quả hoạt động kinh doanh (Mẫu B02-DNN)", "needs": "is"},
 }
-ORDER: List[str] = list(SECTIONS)
+ORDER: List[str] = [k for k in SECTIONS if not k.startswith("form_")]
 
 TEMPLATES: Dict[str, Dict[str, Any]] = {
     "fin_overview": {
@@ -55,6 +58,20 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "description": "Kết quả kiểm tra các phép cộng và cân đối, lỗi gốc và hệ quả, đối chiếu khoản mục và giới hạn của phân tích.",
         "needs": None,
         "sections": ["info", "scope", "data_checks", "mapping", "alerts", "notes"],
+        "default_off": [],
+    },
+    "tt200_forms": {
+        "name": "Báo cáo tài chính theo Thông tư 200/2014/TT-BTC",
+        "description": "Bảng cân đối kế toán (B01-DN) và Báo cáo kết quả kinh doanh (B02-DN) đúng thứ tự, mã số và tên chỉ tiêu của Thông tư 200, kèm kiểm tra số liệu. Dùng cho doanh nghiệp áp dụng TT200.",
+        "needs": None,
+        "sections": ["info", "scope", "data_checks", "form_bs_tt200", "form_is_tt200", "notes"],
+        "default_off": [],
+    },
+    "tt133_forms": {
+        "name": "Báo cáo kết quả kinh doanh theo Thông tư 133/2016/TT-BTC",
+        "description": "Báo cáo kết quả hoạt động kinh doanh (B02-DNN) cho doanh nghiệp nhỏ và vừa áp dụng TT133, kèm kiểm tra số liệu. Cần Báo cáo kết quả kinh doanh.",
+        "needs": "is",
+        "sections": ["info", "scope", "data_checks", "form_is_tt133", "notes"],
         "default_off": [],
     },
 }
