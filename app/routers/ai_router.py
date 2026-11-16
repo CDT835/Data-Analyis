@@ -1,5 +1,5 @@
 """API AI nhận xét. Khóa API chỉ nằm trong thân yêu cầu đã ký, không được ghi log hay trả lại."""
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -24,6 +24,20 @@ class CommentaryPayload(FactsPayload):
 
 class AskPayload(CommentaryPayload):
     question: str = Field(min_length=1, max_length=600)
+
+
+class Turn(BaseModel):
+    role: str = Field(pattern="^(user|assistant)$")
+    content: str = Field(max_length=800)
+
+
+class AssistPayload(BaseModel):
+    question: str = Field(min_length=1, max_length=400)
+    history: List[Turn] = Field(default_factory=list, max_length=8)
+    page: str = Field(default="", max_length=40)
+    is_admin: bool = False
+    model: str = Field(default="openai/gpt-oss-120b", max_length=64)
+    api_key: Optional[str] = Field(default=None, max_length=300, repr=False)
 
 
 class TestPayload(BaseModel):
@@ -56,6 +70,11 @@ def commentary(p: CommentaryPayload):
 @router.post("/ask")
 def ask(p: AskPayload):
     return _run(lambda: ai.ask_question(p.analysis, p.checks, p.question, p.model, p.api_key))
+
+
+@router.post("/assistant")
+def assistant(p: AssistPayload):
+    return _run(lambda: ai.assistant_reply(p.question, [t.model_dump() for t in p.history], p.page, p.is_admin, p.model, p.api_key))
 
 
 @router.post("/test")
