@@ -20,7 +20,8 @@ AI Report Studio là hệ thống phân tích dữ liệu và tự động tạo
 - Mẫu báo cáo: chọn mẫu, chỉnh nhận xét rồi xuất hoặc chia sẻ.
 - Lịch sử: xem lại các phân tích và báo cáo đã tạo, quản lý liên kết chia sẻ.
 - Tài khoản: bấm vào tên hoặc ảnh ở góc phải trên cùng. Tại đây bạn đổi tên hiển thị, đổi hoặc gỡ ảnh đại diện, đổi mật khẩu, xem số thiết bị đang đăng nhập và đăng xuất các thiết bị khác, tải bản sao thông tin của mình, hoặc xóa tài khoản.
-- Quản trị (chỉ quản trị viên): Người dùng, Nhật ký, Sao lưu, Cài đặt.
+- Báo lỗi: gửi lỗi hoặc góp ý cho quản trị viên (chọn loại, nhập tiêu đề và mô tả). Bên dưới là các báo cáo bạn đã gửi, kèm trạng thái (Mới, Đang xử lý, Đã xử lý, Không xử lý) và phản hồi của quản trị viên nếu có. Mỗi giờ gửi tối đa 5 báo cáo.
+- Quản trị (chỉ quản trị viên): Người dùng, Nhật ký, Quản lý báo lỗi, Sao lưu, Cài đặt.
 
 ## Cách dùng từng bước (quy trình thường gặp)
 1. Vào "Tải dữ liệu", chọn tệp CSV hoặc Excel (ví dụ báo cáo tài chính nhiều năm), kiểm tra bảng ánh xạ cột.
@@ -33,6 +34,11 @@ AI Report Studio là hệ thống phân tích dữ liệu và tự động tạo
 - Chỉ số liệu tổng hợp được gửi tới dịch vụ AI, không gửi toàn bộ dữ liệu thô. Câu trả lời của AI cần được người có chuyên môn kiểm tra trước khi dùng.
 - Giới hạn mỗi người: 10 lần tạo nhận xét và 20 câu hỏi mỗi giờ, để bảo vệ hạn mức API.
 - Nếu AI Studio báo chưa cấu hình, quản trị viên cần nhập khóa API trong Cài đặt.
+
+## Xóa nhầm, dữ liệu mẫu và báo lỗi
+- Xóa tệp, báo cáo, bản nháp hoặc bản phân tích: mục biến mất ngay và hiện thông báo có nút "Hoàn tác" trong khoảng 7 giây. Bấm "Hoàn tác" thì mục được giữ nguyên. Sau thời gian đó, hoặc nếu bạn rời trang, mục bị xóa hẳn và không lấy lại được. Xóa một tệp dữ liệu cũng xóa các kết quả phân tích gắn với tệp đó.
+- Dữ liệu mẫu: ở các trang chưa có dữ liệu có nút "Dùng dữ liệu mẫu" (hoặc "Dùng báo cáo mẫu"), bấm một lần là hệ thống thêm tệp mẫu và chuẩn bị sẵn để bạn thử.
+- Khi gặp lỗi, thông báo lỗi có nút "Báo lỗi này": bấm vào để mở trang Báo lỗi đã điền sẵn trang và nội dung lỗi, bạn xem lại rồi gửi cho quản trị viên.
 
 ## Mẫu báo cáo và xuất tệp
 - Có các mẫu phân tích tài chính: tổng quan, thanh khoản, sinh lời, chất lượng số liệu.
@@ -47,10 +53,15 @@ AI Report Studio là hệ thống phân tích dữ liệu và tự động tạo
 - Quản trị viên có thể đặt thời gian tự động xóa dữ liệu cũ trong Cài đặt.
 - Đăng nhập sai nhiều lần sẽ bị tạm khóa để chống đoán mật khẩu.
 
+## Phím tắt và tìm nhanh
+- Ctrl+K (hoặc nút kính lúp ở thanh trên): mở ô tìm nhanh. Gõ tên trang hoặc tên tệp rồi Enter để mở. Ô này có sẵn lối tắt "Tải tệp mới" và "Tạo báo cáo mới".
+- Bấm G rồi một chữ cái để chuyển trang ngay (không dùng khi đang gõ vào ô nhập): G T Tổng quan, G U Tải dữ liệu, G P Phân tích dữ liệu, G M Dự đoán và phân nhóm, G F Phân tích tài chính, G A AI nhận xét, G R Mẫu báo cáo, G H Lịch sử, G B Báo lỗi.
+
 ## Cài đặt và quản trị (chỉ quản trị viên)
 - Cài đặt: kết nối dịch vụ phân tích Python, khóa API và mô hình AI, gửi email (Brevo), đăng nhập bằng Google, các công tắc mã xác nhận qua email, thời gian lưu dữ liệu, dung lượng tải lên tối đa.
 - Người dùng: xem danh sách tài khoản, khóa hoặc mở khóa.
 - Nhật ký: xem thao tác và sự kiện bảo mật.
+- Quản lý báo lỗi: xem báo cáo của người dùng, lọc theo trạng thái, đổi trạng thái, viết phản hồi cho người gửi hoặc xóa.
 - Sao lưu: tạo, tải về và khôi phục bản sao lưu.
 
 ## Xử lý sự cố thường gặp
@@ -68,3 +79,8 @@ AI Report Studio là hệ thống phân tích dữ liệu và tự động tạo
 - Thiết bị đăng nhập: nút "Đăng xuất thiết bị khác" giữ lại thiết bị bạn đang dùng.
 - Dữ liệu của bạn: "Tải bản sao thông tin (JSON)" xuất hồ sơ cùng danh sách tệp và báo cáo, không gồm nội dung tệp.
 - Xóa tài khoản: mở mục "Xóa tài khoản", gõ đúng email (và mật khẩu nếu có) để xác nhận. Toàn bộ tệp, phân tích, báo cáo, liên kết chia sẻ và lịch gửi báo cáo bị xóa vĩnh viễn. Tài khoản quản trị viên không xóa được ở trang này.
+
+
+## Bố cục và luồng làm việc
+
+Các trang Tải dữ liệu, Tài chính, AI Studio và Mẫu báo cáo có dải 4 bước ở đầu trang; trang Tổng quan đánh dấu bước đã xong. Tệp đã chọn được nhớ và tự chọn lại ở các trang khác. Phân tích dữ liệu và Dự đoán nằm trong nhóm Mở rộng. Nút Báo lỗi là biểu tượng cờ trên thanh trên (phím tắt G rồi B).
